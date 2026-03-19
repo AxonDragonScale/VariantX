@@ -4,14 +4,12 @@ import com.android.tools.idea.gradle.variant.view.BuildVariantUpdater
 import com.github.axondragonscale.variantx.VariantXBundle
 import com.github.axondragonscale.variantx.model.AndroidModuleInfo
 import com.github.axondragonscale.variantx.model.VariantSelection
-import com.intellij.notification.NotificationGroupManager
+import com.github.axondragonscale.variantx.util.findModuleByStableName
+import com.github.axondragonscale.variantx.util.notifyVariantX
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
-import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
-import java.io.File
 
 /**
  * Applies a variant selection to the project by delegating to
@@ -33,32 +31,18 @@ class VariantApplierService(private val project: Project) {
 
         if (variantName !in moduleInfo.availableVariants && moduleInfo.availableVariants.isNotEmpty()) {
             logger.warn("Variant '$variantName' is not available for module '${moduleInfo.name}'")
-            notify(
+            project.notifyVariantX(
                 VariantXBundle.message("notification.variantSetFailed", "Invalid variant: $variantName"),
                 NotificationType.WARNING,
             )
             return false
         }
 
-        // Find the IntelliJ Module object by matching its external (file-system) path to the gradle path
-        val projectBasePath = project.basePath ?: run {
-            logger.error("Project base path is null")
-            return false
-        }
-        val module = ModuleManager.getInstance(project).modules.find { m ->
-            val extPath = ExternalSystemApiUtil.getExternalProjectPath(m) ?: return@find false
-            val relative = extPath.removePrefix(projectBasePath)
-            val derivedPath = if (relative.isEmpty()) ":"
-            else relative.replace(File.separatorChar, ':').let {
-                if (it.startsWith(':')) it else ":$it"
-            }
-            derivedPath == moduleInfo.gradlePath
-        }
-
+        val module = project.findModuleByStableName(moduleInfo.stableName)
         if (module == null) {
-            logger.error("Module with gradle path '${moduleInfo.gradlePath}' not found in project")
-            notify(
-                VariantXBundle.message("notification.variantSetFailed", "Module not found: ${moduleInfo.gradlePath}"),
+            logger.error("Module with name '${moduleInfo.stableName}' not found in project")
+            project.notifyVariantX(
+                VariantXBundle.message("notification.variantSetFailed", "Module not found: ${moduleInfo.stableName}"),
                 NotificationType.ERROR,
             )
             return false
@@ -68,25 +52,18 @@ class VariantApplierService(private val project: Project) {
             logger.info("Setting variant '$variantName' on module '${moduleInfo.name}' (${moduleInfo.gradlePath})")
             BuildVariantUpdater.getInstance(project)
                 .updateSelectedBuildVariant(module, variantName)
-            notify(
+            project.notifyVariantX(
                 VariantXBundle.message("notification.variantSet", variantName),
                 NotificationType.INFORMATION,
             )
             true
         } catch (e: Exception) {
             logger.error("Failed to set variant '$variantName' on module '${moduleInfo.name}'", e)
-            notify(
+            project.notifyVariantX(
                 VariantXBundle.message("notification.variantSetFailed", e.message ?: "Unknown error"),
                 NotificationType.ERROR,
             )
             false
         }
-    }
-
-    private fun notify(message: String, type: NotificationType) {
-        NotificationGroupManager.getInstance()
-            .getNotificationGroup("VariantX")
-            .createNotification(message, type)
-            .notify(project)
     }
 }

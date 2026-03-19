@@ -4,6 +4,7 @@ package com.github.axondragonscale.variantx.model
  * Represents a detected Android module with its variant configuration.
  */
 data class AndroidModuleInfo(
+    val stableName: String,
     val name: String,               // display name = androidProject.name (last Gradle path segment, e.g. "login")
     val gradlePath: String,         // full Gradle project path, e.g. ":app" or ":feature:login"
     val isAppModule: Boolean,

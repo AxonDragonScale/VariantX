@@ -36,6 +36,10 @@ class VariantXDialog(
     private val appModules: List<AndroidModuleInfo>,
 ) : DialogWrapper(project) {
 
+    init {
+        require(appModules.isNotEmpty()) { "VariantXDialog requires at least one app module" }
+    }
+
     // Services
     private val stateService = project.service<VariantXStateService>()
     private val applierService = project.service<VariantApplierService>()
@@ -46,6 +50,9 @@ class VariantXDialog(
     private val flavorSelections = mutableMapOf<String, String>()
     private var selectedBuildType: String = "debug"
 
+    /** Cached current selection — updated on every UI change via [updatePreview]. */
+    private var currentSelection: VariantSelection = VariantSelection()
+
     // UI components
     private val flavorSegmentedControls = mutableMapOf<String, SegmentedControl>()
     private var buildTypeSegmentedControl: SegmentedControl? = null
@@ -53,6 +60,7 @@ class VariantXDialog(
     private var moduleSegmentedControl: SegmentedControl? = null
     private var favoritesPanel: FavoritesPanel? = null
     private var favoritesSeparator: TitledSeparator? = null
+    private var favoritesSpacer: JPanel? = null
     private var contentPanel: JPanel? = null
 
     // Actions
@@ -92,7 +100,8 @@ class VariantXDialog(
                 onRemove = { fav -> removeFavorite(fav) },
             )
             panel.add(favoritesPanel)
-            panel.add(createVerticalSpacer())
+            favoritesSpacer = createVerticalSpacer()
+            panel.add(favoritesSpacer)
         }
 
         // ── Module Selector (only if multiple app modules) ──
@@ -225,8 +234,8 @@ class VariantXDialog(
     // ── Preview & Validation ──
 
     private fun updatePreview() {
-        val selection = buildSelection()
-        val variantName = selection.composeVariantName(selectedModule.flavorDimensions)
+        currentSelection = buildSelection()
+        val variantName = currentSelection.composeVariantName(selectedModule.flavorDimensions)
         val isValid = variantName in selectedModule.availableVariants ||
             selectedModule.availableVariants.isEmpty()
 
@@ -246,52 +255,47 @@ class VariantXDialog(
 
         if (::pinAction.isInitialized) {
             pinAction.putValue(Action.NAME, getPinButtonText())
-            val canPin = stateService.canAddFavorite() || stateService.isFavorite(selection)
+            val canPin = stateService.canAddFavorite() || stateService.isFavorite(currentSelection)
             pinAction.isEnabled = canPin
         }
     }
 
     private fun getPinButtonText(): String {
-        val selection = buildSelection()
-        return if (stateService.isFavorite(selection)) VariantXBundle.message("dialog.unpin")
+        return if (stateService.isFavorite(currentSelection)) VariantXBundle.message("dialog.unpin")
                else VariantXBundle.message("dialog.pin")
     }
 
     // ── Button Handlers ──
 
     private fun doSet() {
-        val selection = buildSelection()
-        stateService.saveSelection(selection)
-        applierService.applyVariant(selection, selectedModule)
+        stateService.saveSelection(currentSelection)
+        applierService.applyVariant(currentSelection, selectedModule)
         close(OK_EXIT_CODE)
     }
 
     private fun doBuild() {
-        val selection = buildSelection()
-        stateService.saveSelection(selection)
-        runnerService.applyAndAssemble(selection, selectedModule, applierService)
+        stateService.saveSelection(currentSelection)
+        runnerService.applyAndAssemble(currentSelection, selectedModule)
         close(OK_EXIT_CODE)
     }
 
     private fun doRun() {
-        val selection = buildSelection()
-        stateService.saveSelection(selection)
-        runnerService.applyAndRun(selection, selectedModule, applierService)
+        stateService.saveSelection(currentSelection)
+        runnerService.applyAndRun(currentSelection, selectedModule)
         close(OK_EXIT_CODE)
     }
 
     private fun doTogglePin() {
-        val selection = buildSelection()
-        if (stateService.isFavorite(selection)) {
-            val fav = stateService.getFavorites().find { it.matches(selection) }
+        if (stateService.isFavorite(currentSelection)) {
+            val fav = stateService.getFavorites().find { it.matches(currentSelection) }
             if (fav != null) stateService.removeFavorite(fav)
         } else {
-            val variantName = selection.composeVariantName(selectedModule.flavorDimensions)
+            val variantName = currentSelection.composeVariantName(selectedModule.flavorDimensions)
             stateService.addFavorite(
                 FavoriteVariant(
-                    moduleGradlePath = selection.selectedModuleGradlePath,
-                    flavorSelections = selection.flavorSelections.toMutableMap(),
-                    buildType = selection.selectedBuildType,
+                    moduleGradlePath = currentSelection.selectedModuleGradlePath,
+                    flavorSelections = currentSelection.flavorSelections.toMutableMap(),
+                    buildType = currentSelection.selectedBuildType,
                     variantName = variantName,
                     pinnedAt = System.currentTimeMillis(),
                 )
@@ -301,12 +305,28 @@ class VariantXDialog(
         updatePreview()
     }
 
-    private fun doSetFromFavorite(fav: FavoriteVariant) {
+    /**
+     * Resolves the module info for a favorite and executes [block] with it.
+     * Handles saving the selection and closing the dialog.
+     */
+    private inline fun executeFavoriteAction(fav: FavoriteVariant, block: (AndroidModuleInfo, VariantSelection) -> Unit) {
         val moduleInfo = appModules.find { it.gradlePath == fav.moduleGradlePath } ?: return
         val selection = fav.toVariantSelection()
         stateService.saveSelection(selection)
-        applierService.applyVariant(selection, moduleInfo)
+        block(moduleInfo, selection)
         close(OK_EXIT_CODE)
+    }
+
+    private fun doSetFromFavorite(fav: FavoriteVariant) = executeFavoriteAction(fav) { moduleInfo, selection ->
+        applierService.applyVariant(selection, moduleInfo)
+    }
+
+    private fun doBuildFromFavorite(fav: FavoriteVariant) = executeFavoriteAction(fav) { moduleInfo, selection ->
+        runnerService.applyAndAssemble(selection, moduleInfo)
+    }
+
+    private fun doRunFromFavorite(fav: FavoriteVariant) = executeFavoriteAction(fav) { moduleInfo, selection ->
+        runnerService.applyAndRun(selection, moduleInfo)
     }
 
     /** Loads a favorite's values into all dialog controls without closing the dialog. */
@@ -327,28 +347,14 @@ class VariantXDialog(
         updatePreview()
     }
 
-    private fun doBuildFromFavorite(fav: FavoriteVariant) {
-        val moduleInfo = appModules.find { it.gradlePath == fav.moduleGradlePath } ?: return
-        val selection = fav.toVariantSelection()
-        stateService.saveSelection(selection)
-        runnerService.applyAndAssemble(selection, moduleInfo, applierService)
-        close(OK_EXIT_CODE)
-    }
-
-    private fun doRunFromFavorite(fav: FavoriteVariant) {
-        val moduleInfo = appModules.find { it.gradlePath == fav.moduleGradlePath } ?: return
-        val selection = fav.toVariantSelection()
-        stateService.saveSelection(selection)
-        runnerService.applyAndRun(selection, moduleInfo, applierService)
-        close(OK_EXIT_CODE)
-    }
-
     private fun removeFavorite(fav: FavoriteVariant) {
         stateService.removeFavorite(fav)
         val updated = stateService.getFavorites()
         if (updated.isEmpty()) {
+            // Remove the entire favorites section including its spacer
             favoritesSeparator?.let { contentPanel?.remove(it) }
             favoritesPanel?.let { contentPanel?.remove(it) }
+            favoritesSpacer?.let { contentPanel?.remove(it) }
             contentPanel?.revalidate()
             contentPanel?.repaint()
         } else {
@@ -360,6 +366,12 @@ class VariantXDialog(
     // ── Segmented Control Rebuilding ──
 
     private fun rebuildSegmentedControls() {
+        val currentDimensions = selectedModule.flavorDimensions.toSet()
+
+        // Remove stale dimension entries that don't exist in the new module
+        flavorSelections.keys.retainAll(currentDimensions)
+        flavorSegmentedControls.keys.retainAll(currentDimensions)
+
         for ((dim, sc) in flavorSegmentedControls) {
             val newFlavors = selectedModule.flavorsPerDimension[dim]
             if (newFlavors != null) {

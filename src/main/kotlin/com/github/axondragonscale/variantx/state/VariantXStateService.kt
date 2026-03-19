@@ -54,12 +54,13 @@ class VariantXStateService : PersistentStateComponent<VariantXStateService.Varia
     // ── Favorites Management ──
 
     fun getFavorites(): List<FavoriteVariant> =
-        myState.favorites.sortedByDescending { it.pinnedAt }
+        myState.favorites.toList()
 
     fun addFavorite(favorite: FavoriteVariant): Boolean {
         if (myState.favorites.size >= MAX_FAVORITES) return false
         if (myState.favorites.any { it.matches(favorite.toVariantSelection()) }) return false
-        myState.favorites.add(favorite)
+        // Insert at position 0 to maintain most-recently-pinned-first order
+        myState.favorites.add(0, favorite)
         return true
     }
 

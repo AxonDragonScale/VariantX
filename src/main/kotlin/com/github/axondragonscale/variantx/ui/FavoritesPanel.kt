@@ -15,7 +15,6 @@ import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Graphics
 import java.awt.Graphics2D
-import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.BoxLayout
@@ -41,6 +40,11 @@ class FavoritesPanel(
     private val onRemove: (FavoriteVariant) -> Unit,
 ) : JPanel() {
 
+    companion object {
+        /** Horizontal gap between the name label and the action buttons. */
+        private const val NAME_TO_BUTTONS_GAP = 100
+    }
+
     init {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         isOpaque = false
@@ -64,8 +68,7 @@ class FavoritesPanel(
     }
 
     private fun createFavoriteRow(fav: FavoriteVariant, isValid: Boolean): JPanel {
-        // hgap=100 provides the gap between the name label and the button panel
-        val row = JPanel(BorderLayout(JBUI.scale(100), 0))
+        val row = JPanel(BorderLayout(JBUI.scale(NAME_TO_BUTTONS_GAP), 0))
         row.isOpaque = false
         row.border = JBUI.Borders.empty(2, 4)
 
@@ -77,26 +80,11 @@ class FavoritesPanel(
             fav.variantName
         }
         val nameLabel = object : JBLabel(displayName) {
-            private var hovered = false
-            private var pressed = false
+            private val hoverHelper = HoverPaintHelper(this).also { it.install() }
 
             override fun paintComponent(g: Graphics) {
                 val g2 = g.create() as Graphics2D
-                try {
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                    when {
-                        pressed -> {
-                            g2.color = JBUI.CurrentTheme.ActionButton.pressedBackground()
-                            g2.fillRoundRect(0, 0, width, height, JBUI.scale(8), JBUI.scale(8))
-                        }
-                        hovered -> {
-                            g2.color = JBUI.CurrentTheme.ActionButton.hoverBackground()
-                            g2.fillRoundRect(0, 0, width, height, JBUI.scale(8), JBUI.scale(8))
-                        }
-                    }
-                } finally {
-                    g2.dispose()
-                }
+                try { hoverHelper.paintBackground(g2, width, height) } finally { g2.dispose() }
                 super.paintComponent(g)
             }
 
@@ -109,10 +97,6 @@ class FavoritesPanel(
                     toolTipText = VariantXBundle.message("favorites.stale")
                 }
                 addMouseListener(object : MouseAdapter() {
-                    override fun mouseEntered(e: MouseEvent) { hovered = true; repaint() }
-                    override fun mouseExited(e: MouseEvent) { hovered = false; pressed = false; repaint() }
-                    override fun mousePressed(e: MouseEvent) { pressed = true; repaint() }
-                    override fun mouseReleased(e: MouseEvent) { pressed = false; repaint() }
                     override fun mouseClicked(e: MouseEvent) {
                         if (e.button == MouseEvent.BUTTON1 && !e.isPopupTrigger) onSelect(fav)
                     }
@@ -160,26 +144,11 @@ class FavoritesPanel(
     ): JButton {
         val size = Dimension(JBUI.scale(28), JBUI.scale(28))
         return object : JButton(icon) {
-            private var hovered = false
-            private var pressed = false
+            private val hoverHelper = HoverPaintHelper(this).also { it.install() }
 
             override fun paintComponent(g: Graphics) {
                 val g2 = g.create() as Graphics2D
-                try {
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                    when {
-                        isEnabled && pressed -> {
-                            g2.color = JBUI.CurrentTheme.ActionButton.pressedBackground()
-                            g2.fillRoundRect(0, 0, width, height, JBUI.scale(8), JBUI.scale(8))
-                        }
-                        isEnabled && hovered -> {
-                            g2.color = JBUI.CurrentTheme.ActionButton.hoverBackground()
-                            g2.fillRoundRect(0, 0, width, height, JBUI.scale(8), JBUI.scale(8))
-                        }
-                    }
-                } finally {
-                    g2.dispose()
-                }
+                try { hoverHelper.paintBackground(g2, width, height, isEnabled) } finally { g2.dispose() }
                 super.paintComponent(g)
             }
 
@@ -194,12 +163,6 @@ class FavoritesPanel(
                 preferredSize = size
                 minimumSize = size
                 maximumSize = size
-                addMouseListener(object : MouseAdapter() {
-                    override fun mouseEntered(e: MouseEvent) { hovered = true; repaint() }
-                    override fun mouseExited(e: MouseEvent) { hovered = false; pressed = false; repaint() }
-                    override fun mousePressed(e: MouseEvent) { if (isEnabled) { pressed = true; repaint() } }
-                    override fun mouseReleased(e: MouseEvent) { pressed = false; repaint() }
-                })
                 addActionListener { action() }
             }
         }

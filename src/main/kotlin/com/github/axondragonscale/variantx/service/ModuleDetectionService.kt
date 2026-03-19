@@ -5,12 +5,11 @@ import com.android.tools.idea.gradle.project.model.GradleAndroidModel
 import com.github.axondragonscale.variantx.model.AndroidModuleInfo
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import org.jetbrains.android.facet.AndroidFacet
-import java.io.File
+import org.jetbrains.kotlin.idea.base.facet.stableName
 
 /**
  * Detects Android modules in the project and reads their variant configuration
@@ -24,7 +23,7 @@ class ModuleDetectionService(private val project: Project) {
     companion object {
         /**
          * IntelliJ Gradle integration creates sub-modules for every Gradle source set
-         * (e.g. app.main, app.unitTest, app.androidTest).  We want only the top-level
+         * (e.g. app.main, app.unitTest, app.androidTest). We want only the top-level
          * Gradle project module, so we skip any module whose last dot-separated component
          * matches a known source-set name.
          */
@@ -42,19 +41,13 @@ class ModuleDetectionService(private val project: Project) {
     fun findAndroidModules(): List<AndroidModuleInfo> {
         return ModuleManager.getInstance(project).modules.mapNotNull { module ->
             try {
-                // Skip source-set sub-modules such as app.main, app.unitTest, app.androidTest
-                if (module.name.contains('.')) {
-                    val suffix = module.name.substringAfterLast('.')
-                    if (suffix in SOURCE_SET_SUFFIXES) return@mapNotNull null
-                }
+                if (module.isSourceSetSubModule()) return@mapNotNull null
 
                 AndroidFacet.getInstance(module) ?: return@mapNotNull null
                 val androidModel = GradleAndroidModel.get(module) ?: return@mapNotNull null
                 val androidProject = androidModel.androidProject
 
                 val isApp = androidProject.projectType == IdeAndroidProjectType.PROJECT_TYPE_APP
-
-                // Use GradleAndroidModel's convenience getters
                 val flavorsPerDimension = androidModel.productFlavorNamesByFlavorDimension
                 val dimensions = androidProject.flavorDimensions.toList()
                 val buildTypes = androidModel.buildTypeNames.toList()
@@ -63,6 +56,7 @@ class ModuleDetectionService(private val project: Project) {
                 val gradlePath = androidProject.projectPath.projectPath
 
                 AndroidModuleInfo(
+                    stableName = module.stableName.toString(),
                     name = gradlePath.removePrefix(":").ifEmpty { module.name },
                     gradlePath = gradlePath,
                     isAppModule = isApp,
@@ -86,23 +80,11 @@ class ModuleDetectionService(private val project: Project) {
         findAndroidModules().filter { it.isAppModule }
 
     /**
-     * Derive the Gradle project path (e.g. ":app", ":feature:login") from the module's
-     * filesystem path relative to the project root.
+     * Returns true if this module represents a Gradle source set sub-module
+     * (e.g. "app.main", "app.unitTest") rather than a top-level project module.
      */
-    private fun deriveGradleModulePath(module: Module): String {
-        val externalPath = ExternalSystemApiUtil.getExternalProjectPath(module)
-        val projectBasePath = project.basePath
-        return if (externalPath != null && projectBasePath != null) {
-            val relative = externalPath.removePrefix(projectBasePath)
-            if (relative.isEmpty()) {
-                ":"
-            } else {
-                relative.replace(File.separatorChar, ':').let {
-                    if (it.startsWith(':')) it else ":$it"
-                }
-            }
-        } else {
-            ":${module.name}"
-        }
+    private fun Module.isSourceSetSubModule(): Boolean {
+        if (!name.contains('.')) return false
+        return name.substringAfterLast('.') in SOURCE_SET_SUFFIXES
     }
 }

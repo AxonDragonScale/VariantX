@@ -5,12 +5,13 @@ import com.android.tools.idea.gradle.project.sync.GradleSyncState
 import com.github.axondragonscale.variantx.VariantXBundle
 import com.github.axondragonscale.variantx.model.AndroidModuleInfo
 import com.github.axondragonscale.variantx.model.VariantSelection
+import com.github.axondragonscale.variantx.util.notifyVariantX
 import com.intellij.execution.executors.DefaultRunExecutor
-import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
+import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.thisLogger
 import com.intellij.openapi.externalSystem.model.execution.ExternalSystemTaskExecutionSettings
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
@@ -26,6 +27,7 @@ import org.jetbrains.plugins.gradle.util.GradleConstants
 class AppRunnerService(private val project: Project) : Disposable {
 
     private val logger = thisLogger()
+    private val applierService by lazy { project.service<VariantApplierService>() }
 
     override fun dispose() = Unit
 
@@ -67,87 +69,90 @@ class AppRunnerService(private val project: Project) : Disposable {
         }
     }
 
-    // ── Apply + Assemble ──
+    // ── Apply + Execute ──
 
     /**
      * Apply the variant, wait for any triggered sync, then assemble (no install/run).
      */
-    fun applyAndAssemble(
-        selection: VariantSelection,
-        moduleInfo: AndroidModuleInfo,
-        applierService: VariantApplierService,
-    ) {
-        val applied = applierService.applyVariant(selection, moduleInfo)
-        if (!applied) return
-
-        val variantName = selection.composeVariantName(moduleInfo.flavorDimensions)
-        notify(
-            VariantXBundle.message("notification.building", moduleInfo.name, variantName),
-            NotificationType.INFORMATION,
-        )
-
-        waitForSyncIfNeeded(
-            logTag = "VariantX:AssembleSyncListener",
-            onSyncSucceeded = { assembleApp(moduleInfo, variantName) },
-        )
+    fun applyAndAssemble(selection: VariantSelection, moduleInfo: AndroidModuleInfo) {
+        applyAndExecute(selection, moduleInfo, "notification.building") { variantName ->
+            assembleApp(moduleInfo, variantName)
+        }
     }
-
-    // ── Apply + Run ──
 
     /**
      * Apply the variant, wait for any triggered sync, then install and run the app.
      */
-    fun applyAndRun(
+    fun applyAndRun(selection: VariantSelection, moduleInfo: AndroidModuleInfo) {
+        applyAndExecute(selection, moduleInfo, "notification.running") { variantName ->
+            runApp(moduleInfo, variantName)
+        }
+    }
+
+    /**
+     * Shared logic: apply variant → notify → wait for sync if needed → execute task.
+     */
+    private fun applyAndExecute(
         selection: VariantSelection,
         moduleInfo: AndroidModuleInfo,
-        applierService: VariantApplierService,
+        notificationKey: String,
+        task: (variantName: String) -> Unit,
     ) {
         val applied = applierService.applyVariant(selection, moduleInfo)
         if (!applied) return
 
         val variantName = selection.composeVariantName(moduleInfo.flavorDimensions)
-        notify(
-            VariantXBundle.message("notification.running", moduleInfo.name, variantName),
+        project.notifyVariantX(
+            VariantXBundle.message(notificationKey, moduleInfo.name, variantName),
             NotificationType.INFORMATION,
         )
 
-        waitForSyncIfNeeded(
-            logTag = "VariantX:SyncListener",
-            onSyncSucceeded = { runApp(moduleInfo, variantName) },
-        )
+        waitForSyncIfNeeded { task(variantName) }
     }
 
     // ── Helpers ──
 
-    private fun waitForSyncIfNeeded(logTag: String, onSyncSucceeded: () -> Unit) {
-        if (GradleSyncState.getInstance(project).isSyncInProgress) {
-            logger.info("Sync in progress after variant change, waiting ($logTag)…")
-            val disposable = Disposer.newDisposable(this, logTag)
-            GradleSyncState.subscribe(project, object : GradleSyncListener {
-                override fun syncSucceeded(project: Project) {
-                    logger.info("Sync succeeded, proceeding with task ($logTag)")
+    /**
+     * If a Gradle sync is in progress, subscribes a one-shot listener to run [onSyncSucceeded]
+     * after it completes. Otherwise runs [onSyncSucceeded] immediately.
+     *
+     * Subscribes *before* checking sync state to avoid a race where sync finishes
+     * between the check and the subscribe call.
+     */
+    private fun waitForSyncIfNeeded(onSyncSucceeded: () -> Unit) {
+        val disposable = Disposer.newDisposable(this, "VariantX:SyncListener")
+        var handled = false
+
+        GradleSyncState.subscribe(project, object : GradleSyncListener {
+            override fun syncSucceeded(project: Project) {
+                if (!handled) {
+                    handled = true
                     Disposer.dispose(disposable)
+                    logger.info("Sync succeeded, proceeding with task")
                     onSyncSucceeded()
                 }
+            }
 
-                override fun syncFailed(project: Project, errorMessage: String) {
-                    logger.warn("Sync failed after variant change: $errorMessage")
+            override fun syncFailed(project: Project, errorMessage: String) {
+                if (!handled) {
+                    handled = true
                     Disposer.dispose(disposable)
-                    notify(
+                    logger.warn("Sync failed after variant change: $errorMessage")
+                    project.notifyVariantX(
                         VariantXBundle.message("notification.variantSetFailed", "Gradle sync failed: $errorMessage"),
                         NotificationType.ERROR,
                     )
                 }
-            }, disposable)
-        } else {
-            onSyncSucceeded()
-        }
-    }
+            }
+        }, disposable)
 
-    private fun notify(message: String, type: NotificationType) {
-        NotificationGroupManager.getInstance()
-            .getNotificationGroup("VariantX")
-            .createNotification(message, type)
-            .notify(project)
+        // If no sync is in progress, the listener is unnecessary — run immediately
+        if (!GradleSyncState.getInstance(project).isSyncInProgress) {
+            if (!handled) {
+                handled = true
+                Disposer.dispose(disposable)
+                onSyncSucceeded()
+            }
+        }
     }
 }
