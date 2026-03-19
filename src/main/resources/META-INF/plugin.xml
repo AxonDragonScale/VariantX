@@ -5,11 +5,26 @@
     <vendor>axondragonscale</vendor>
 
     <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.android</depends>
+    <depends>com.intellij.gradle</depends>
 
-    <resource-bundle>messages.MyBundle</resource-bundle>
+    <resource-bundle>messages.VariantXBundle</resource-bundle>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow factoryClass="com.github.axondragonscale.variantx.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>
-        <postStartupActivity implementation="com.github.axondragonscale.variantx.startup.MyProjectActivity" />
+        <notificationGroup id="VariantX" displayType="BALLOON"/>
     </extensions>
+
+    <actions>
+        <action id="VariantX.Show"
+                class="com.github.axondragonscale.variantx.action.ShowVariantXAction"
+                text="VariantX: Select Variant"
+                description="Open VariantX variant selector dialog">
+            <add-to-group group-id="BuildMenu"
+                          anchor="after"
+                          relative-to-action="SelectBuildVariant"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift X"/>
+            <keyboard-shortcut keymap="Mac OS X" first-keystroke="meta shift X"/>
+            <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="meta shift X"/>
+        </action>
+    </actions>
 </idea-plugin>
