@@ -20,11 +20,13 @@ import icons.GradleIcons
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.event.ActionEvent
+import java.awt.event.KeyEvent
 import javax.swing.AbstractAction
 import javax.swing.Action
 import javax.swing.BoxLayout
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.KeyStroke
 
 /**
  * Main VariantX dialog. Shows segmented controls for flavor dimensions
@@ -58,6 +60,7 @@ class VariantXDialog(
     private var buildTypeSegmentedControl: SegmentedControl? = null
     private var variantPreviewLabel = JBLabel("")
     private var moduleSegmentedControl: SegmentedControl? = null
+    private var flavorsContainer: JPanel? = null
     private var favoritesPanel: FavoritesPanel? = null
     private var favoritesSeparator: TitledSeparator? = null
     private var favoritesSpacer: JPanel? = null
@@ -74,6 +77,7 @@ class VariantXDialog(
         restoreFromState()
         init()
         updatePreview()
+        registerKeyboardShortcuts()
     }
 
     // ── Panel ──
@@ -123,25 +127,13 @@ class VariantXDialog(
         }
 
         // ── Flavors Section ──
-        if (selectedModule.flavorDimensions.isNotEmpty()) {
-            panel.add(TitledSeparator(VariantXBundle.message("dialog.flavors")))
-
-            for (dimension in selectedModule.flavorDimensions) {
-                val flavors = selectedModule.flavorsPerDimension[dimension] ?: continue
-                val preSelected = flavorSelections[dimension]
-                    ?: flavors.firstOrNull() ?: continue
-
-                val row = createRow("$dimension:")
-                val sc = SegmentedControl(flavors, preSelected) { chosen ->
-                    flavorSelections[dimension] = chosen
-                    updatePreview()
-                }
-                flavorSegmentedControls[dimension] = sc
-                row.add(sc, createFillConstraints())
-                panel.add(row)
-            }
-            panel.add(createVerticalSpacer())
+        val flavorsContainer = JPanel().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            isOpaque = false
         }
+        this.flavorsContainer = flavorsContainer
+        buildFlavorRows()
+        panel.add(flavorsContainer)
 
         // ── Build Type Section ──
         panel.add(TitledSeparator(VariantXBundle.message("dialog.buildType")))
@@ -289,6 +281,8 @@ class VariantXDialog(
         if (stateService.isFavorite(currentSelection)) {
             val fav = stateService.getFavorites().find { it.matches(currentSelection) }
             if (fav != null) stateService.removeFavorite(fav)
+            val updated = stateService.getFavorites()
+            if (updated.isEmpty()) hideFavoritesSection() else favoritesPanel?.refresh(updated)
         } else {
             val variantName = currentSelection.composeVariantName(selectedModule.flavorDimensions)
             stateService.addFavorite(
@@ -300,8 +294,9 @@ class VariantXDialog(
                     pinnedAt = System.currentTimeMillis(),
                 )
             )
+            val updated = stateService.getFavorites()
+            if (favoritesPanel == null) showFavoritesSection(updated) else favoritesPanel?.refresh(updated)
         }
-        favoritesPanel?.refresh(stateService.getFavorites())
         updatePreview()
     }
 
@@ -350,46 +345,123 @@ class VariantXDialog(
     private fun removeFavorite(fav: FavoriteVariant) {
         stateService.removeFavorite(fav)
         val updated = stateService.getFavorites()
-        if (updated.isEmpty()) {
-            // Remove the entire favorites section including its spacer
-            favoritesSeparator?.let { contentPanel?.remove(it) }
-            favoritesPanel?.let { contentPanel?.remove(it) }
-            favoritesSpacer?.let { contentPanel?.remove(it) }
-            contentPanel?.revalidate()
-            contentPanel?.repaint()
-        } else {
-            favoritesPanel?.refresh(updated)
-        }
+        if (updated.isEmpty()) hideFavoritesSection() else favoritesPanel?.refresh(updated)
         updatePreview()
     }
 
     // ── Segmented Control Rebuilding ──
 
     private fun rebuildSegmentedControls() {
+        // Sync flavorSelections for the new module — keep valid existing selections, seed missing ones
         val currentDimensions = selectedModule.flavorDimensions.toSet()
-
-        // Remove stale dimension entries that don't exist in the new module
         flavorSelections.keys.retainAll(currentDimensions)
-        flavorSegmentedControls.keys.retainAll(currentDimensions)
-
-        for ((dim, sc) in flavorSegmentedControls) {
-            val newFlavors = selectedModule.flavorsPerDimension[dim]
-            if (newFlavors != null) {
-                sc.updateItems(newFlavors, flavorSelections[dim])
-                flavorSelections[dim] = sc.selectedValue
-            }
-        }
         for (dim in selectedModule.flavorDimensions) {
-            if (dim !in flavorSegmentedControls) {
-                val flavors = selectedModule.flavorsPerDimension[dim] ?: continue
-                flavorSelections[dim] = flavors.first()
-            }
+            val flavors = selectedModule.flavorsPerDimension[dim] ?: continue
+            if (flavorSelections[dim] !in flavors) flavorSelections[dim] = flavors.first()
+        }
+
+        // Rebuild the flavor rows UI for the new module
+        buildFlavorRows()
+
+        // Update build type — fall back to first if current type doesn't exist in new module
+        if (selectedBuildType !in selectedModule.buildTypes) {
+            selectedBuildType = selectedModule.buildTypes.firstOrNull() ?: "debug"
         }
         buildTypeSegmentedControl?.updateItems(selectedModule.buildTypes, selectedBuildType)
         selectedBuildType = buildTypeSegmentedControl?.selectedValue ?: selectedBuildType
     }
 
     // ── Helpers ──
+
+    /**
+     * Clears and rebuilds the flavor rows inside [flavorsContainer] for [selectedModule].
+     * Called once during initial panel creation and again on every module switch.
+     */
+    private fun buildFlavorRows() {
+        val container = flavorsContainer ?: return
+        container.removeAll()
+        flavorSegmentedControls.clear()
+
+        if (selectedModule.flavorDimensions.isNotEmpty()) {
+            container.add(TitledSeparator(VariantXBundle.message("dialog.flavors")))
+            for (dimension in selectedModule.flavorDimensions) {
+                val flavors = selectedModule.flavorsPerDimension[dimension] ?: continue
+                val preSelected = flavorSelections[dimension] ?: flavors.first()
+                val row = createRow("$dimension:")
+                val sc = SegmentedControl(flavors, preSelected) { chosen ->
+                    flavorSelections[dimension] = chosen
+                    updatePreview()
+                }
+                flavorSegmentedControls[dimension] = sc
+                row.add(sc, createFillConstraints())
+                container.add(row)
+            }
+            container.add(createVerticalSpacer())
+        }
+
+        container.revalidate()
+        container.repaint()
+    }
+
+    /** Inserts the favorites separator, panel, and spacer at the top of the content panel. */
+    private fun showFavoritesSection(favorites: List<FavoriteVariant>) {
+        val panel = contentPanel ?: return
+        favoritesSeparator = TitledSeparator(VariantXBundle.message("favorites.title"))
+        favoritesPanel = FavoritesPanel(
+            favorites = favorites,
+            moduleInfoMap = appModules.associateBy { it.gradlePath },
+            onSelect = { fav -> loadFromFavorite(fav) },
+            onSet = { fav -> doSetFromFavorite(fav) },
+            onBuild = { fav -> doBuildFromFavorite(fav) },
+            onRun = { fav -> doRunFromFavorite(fav) },
+            onRemove = { fav -> removeFavorite(fav) },
+        )
+        favoritesSpacer = createVerticalSpacer()
+        panel.add(favoritesSeparator!!, 0)
+        panel.add(favoritesPanel!!, 1)
+        panel.add(favoritesSpacer!!, 2)
+        panel.revalidate()
+        panel.repaint()
+    }
+
+    /** Removes the favorites separator, panel, and spacer from the content panel. */
+    private fun hideFavoritesSection() {
+        favoritesSeparator?.let { contentPanel?.remove(it) }
+        favoritesPanel?.let { contentPanel?.remove(it) }
+        favoritesSpacer?.let { contentPanel?.remove(it) }
+        favoritesSeparator = null
+        favoritesPanel = null
+        favoritesSpacer = null
+        contentPanel?.revalidate()
+        contentPanel?.repaint()
+    }
+
+    private fun registerKeyboardShortcuts() {
+        val panel = contentPanel ?: return
+        val inputMap = panel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+        val actionMap = panel.actionMap
+
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_R, 0), "shortcut-run")
+        actionMap.put("shortcut-run", object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent) {
+                if (runAction.isEnabled) doRun()
+            }
+        })
+
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_B, 0), "shortcut-build")
+        actionMap.put("shortcut-build", object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent) {
+                if (buildAction.isEnabled) doBuild()
+            }
+        })
+
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_S, 0), "shortcut-sync")
+        actionMap.put("shortcut-sync", object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent) {
+                if (setAction.isEnabled) doSet()
+            }
+        })
+    }
 
     private fun buildSelection(): VariantSelection = VariantSelection(
         selectedModuleGradlePath = selectedModule.gradlePath,

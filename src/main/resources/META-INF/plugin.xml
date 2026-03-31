@@ -2,7 +2,7 @@
 <idea-plugin>
     <id>com.github.axondragonscale.variantx</id>
     <name>VariantX</name>
-    <vendor>axondragonscale</vendor>
+    <vendor email="axondragonscale@gmail.com" url="https://github.com/AxonDragonScale">axondragonscale</vendor>
 
     <depends>com.intellij.modules.platform</depends>
     <depends>org.jetbrains.android</depends>

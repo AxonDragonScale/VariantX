@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.1.0]
+### Added
+- "Build" action: assembles the selected variant without launching the app
+- Dialog keyboard shortcuts: press `R` / `B` / `S` to trigger Run / Build / Sync directly
+- Fix bug where UI wouldn't reflect immediately on pin a variant
+
 ## [0.0.1]
 ### Added
 - Keyboard shortcut `Cmd+Shift+X` / `Ctrl+Shift+X` to open variant selector dialog
