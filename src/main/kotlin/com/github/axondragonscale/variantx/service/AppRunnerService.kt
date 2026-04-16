@@ -18,6 +18,7 @@ import com.intellij.openapi.externalSystem.util.ExternalSystemUtil
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import org.jetbrains.plugins.gradle.util.GradleConstants
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Triggers Gradle tasks (assemble / install) for a given Android app module + variant.
@@ -37,19 +38,20 @@ class AppRunnerService(private val project: Project) : Disposable {
      * Execute `:module:assemble{Variant}` — builds without installing or running.
      */
     fun assembleApp(moduleInfo: AndroidModuleInfo, variantName: String) {
-        val capitalizedVariant = variantName.replaceFirstChar { it.uppercase() }
-        val taskPath = "${moduleInfo.gradlePath}:assemble$capitalizedVariant"
-        logger.info("Assembling Gradle task: $taskPath")
-        runGradleTask(taskPath)
+        executeVariantTask(moduleInfo, "assemble", variantName)
     }
 
     /**
      * Execute `:module:install{Variant}` — builds, installs, and runs the app.
      */
     fun runApp(moduleInfo: AndroidModuleInfo, variantName: String) {
+        executeVariantTask(moduleInfo, "install", variantName)
+    }
+
+    private fun executeVariantTask(moduleInfo: AndroidModuleInfo, taskPrefix: String, variantName: String) {
         val capitalizedVariant = variantName.replaceFirstChar { it.uppercase() }
-        val taskPath = "${moduleInfo.gradlePath}:install$capitalizedVariant"
-        logger.info("Running Gradle task: $taskPath")
+        val taskPath = "${moduleInfo.gradlePath}:$taskPrefix$capitalizedVariant"
+        logger.info("Executing Gradle task: $taskPath")
         runGradleTask(taskPath)
     }
 
@@ -103,7 +105,7 @@ class AppRunnerService(private val project: Project) : Disposable {
 
         val variantName = selection.composeVariantName(moduleInfo.flavorDimensions)
         project.notifyVariantX(
-            VariantXBundle.message(notificationKey, moduleInfo.name, variantName),
+            VariantXBundle.message(notificationKey, moduleInfo.displayName, variantName),
             NotificationType.INFORMATION,
         )
 
@@ -121,12 +123,11 @@ class AppRunnerService(private val project: Project) : Disposable {
      */
     private fun waitForSyncIfNeeded(onSyncSucceeded: () -> Unit) {
         val disposable = Disposer.newDisposable(this, "VariantX:SyncListener")
-        var handled = false
+        val handled = AtomicBoolean(false)
 
         GradleSyncState.subscribe(project, object : GradleSyncListener {
             override fun syncSucceeded(project: Project) {
-                if (!handled) {
-                    handled = true
+                if (handled.compareAndSet(false, true)) {
                     Disposer.dispose(disposable)
                     logger.info("Sync succeeded, proceeding with task")
                     onSyncSucceeded()
@@ -134,8 +135,7 @@ class AppRunnerService(private val project: Project) : Disposable {
             }
 
             override fun syncFailed(project: Project, errorMessage: String) {
-                if (!handled) {
-                    handled = true
+                if (handled.compareAndSet(false, true)) {
                     Disposer.dispose(disposable)
                     logger.warn("Sync failed after variant change: $errorMessage")
                     project.notifyVariantX(
@@ -148,8 +148,7 @@ class AppRunnerService(private val project: Project) : Disposable {
 
         // If no sync is in progress, the listener is unnecessary — run immediately
         if (!GradleSyncState.getInstance(project).isSyncInProgress) {
-            if (!handled) {
-                handled = true
+            if (handled.compareAndSet(false, true)) {
                 Disposer.dispose(disposable)
                 onSyncSucceeded()
             }

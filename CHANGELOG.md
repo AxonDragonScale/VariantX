@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.2.0]
+### Added
+- Fix duplicates in the variant selector dialog
+
 ## [0.1.0]
 ### Added
 - "Build" action: assembles the selected variant without launching the app

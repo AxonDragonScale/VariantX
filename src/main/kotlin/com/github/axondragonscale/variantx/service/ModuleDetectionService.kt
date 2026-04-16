@@ -5,11 +5,10 @@ import com.android.tools.idea.gradle.project.model.GradleAndroidModel
 import com.github.axondragonscale.variantx.model.AndroidModuleInfo
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.thisLogger
-import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
 import org.jetbrains.android.facet.AndroidFacet
-import org.jetbrains.kotlin.idea.base.facet.stableName
+import org.jetbrains.plugins.gradle.util.GradleUtil
 
 /**
  * Detects Android modules in the project and reads their variant configuration
@@ -20,28 +19,21 @@ class ModuleDetectionService(private val project: Project) {
 
     private val logger = thisLogger()
 
-    companion object {
-        /**
-         * IntelliJ Gradle integration creates sub-modules for every Gradle source set
-         * (e.g. app.main, app.unitTest, app.androidTest). We want only the top-level
-         * Gradle project module, so we skip any module whose last dot-separated component
-         * matches a known source-set name.
-         */
-        private val SOURCE_SET_SUFFIXES = setOf(
-            "main", "test", "unitTest", "androidTest",
-            "testDebug", "testRelease",
-            "debugAndroidTest", "releaseAndroidTest",
-            "testFixtures",
-        )
-    }
-
     /**
      * Find all Android modules in the project with their variant info.
+     *
+     * Uses [GradleUtil.findGradleModuleData] to reliably identify top-level Gradle
+     * project modules. Source-set sub-modules (e.g. `app.main`, `app.unitTest`) do not
+     * have their own Gradle module data node and are automatically excluded — no
+     * hardcoded suffix list needed.
      */
     fun findAndroidModules(): List<AndroidModuleInfo> {
         return ModuleManager.getInstance(project).modules.mapNotNull { module ->
             try {
-                if (module.isSourceSetSubModule()) return@mapNotNull null
+                // Only top-level Gradle project modules have Gradle module data.
+                // Source-set sub-modules (app.main, app.unitTest, etc.) do not,
+                // so this single check replaces the old hardcoded suffix list.
+                GradleUtil.findGradleModuleData(module) ?: return@mapNotNull null
 
                 AndroidFacet.getInstance(module) ?: return@mapNotNull null
                 val androidModel = GradleAndroidModel.get(module) ?: return@mapNotNull null
@@ -56,8 +48,8 @@ class ModuleDetectionService(private val project: Project) {
                 val gradlePath = androidProject.projectPath.projectPath
 
                 AndroidModuleInfo(
-                    stableName = module.stableName.toString(),
-                    name = gradlePath.removePrefix(":").ifEmpty { module.name },
+                    moduleName = module.name,
+                    displayName = gradlePath.removePrefix(":").ifEmpty { module.name },
                     gradlePath = gradlePath,
                     isAppModule = isApp,
                     flavorDimensions = dimensions,
@@ -70,7 +62,7 @@ class ModuleDetectionService(private val project: Project) {
                 logger.warn("Failed to read variant info for module ${module.name}", e)
                 null
             }
-        }
+        }.distinctBy { it.gradlePath }
     }
 
     /**
@@ -78,13 +70,4 @@ class ModuleDetectionService(private val project: Project) {
      */
     fun getAppModules(): List<AndroidModuleInfo> =
         findAndroidModules().filter { it.isAppModule }
-
-    /**
-     * Returns true if this module represents a Gradle source set sub-module
-     * (e.g. "app.main", "app.unitTest") rather than a top-level project module.
-     */
-    private fun Module.isSourceSetSubModule(): Boolean {
-        if (!name.contains('.')) return false
-        return name.substringAfterLast('.') in SOURCE_SET_SUFFIXES
-    }
 }

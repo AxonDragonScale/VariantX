@@ -4,7 +4,7 @@ import com.android.tools.idea.gradle.variant.view.BuildVariantUpdater
 import com.github.axondragonscale.variantx.VariantXBundle
 import com.github.axondragonscale.variantx.model.AndroidModuleInfo
 import com.github.axondragonscale.variantx.model.VariantSelection
-import com.github.axondragonscale.variantx.util.findModuleByStableName
+import com.github.axondragonscale.variantx.util.findModuleByName
 import com.github.axondragonscale.variantx.util.notifyVariantX
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.components.Service
@@ -30,7 +30,7 @@ class VariantApplierService(private val project: Project) {
         val variantName = selection.composeVariantName(moduleInfo.flavorDimensions)
 
         if (variantName !in moduleInfo.availableVariants && moduleInfo.availableVariants.isNotEmpty()) {
-            logger.warn("Variant '$variantName' is not available for module '${moduleInfo.name}'")
+            logger.warn("Variant '$variantName' is not available for module '${moduleInfo.displayName}'")
             project.notifyVariantX(
                 VariantXBundle.message("notification.variantSetFailed", "Invalid variant: $variantName"),
                 NotificationType.WARNING,
@@ -38,18 +38,18 @@ class VariantApplierService(private val project: Project) {
             return false
         }
 
-        val module = project.findModuleByStableName(moduleInfo.stableName)
+        val module = project.findModuleByName(moduleInfo.moduleName)
         if (module == null) {
-            logger.error("Module with name '${moduleInfo.stableName}' not found in project")
+            logger.error("Module '${moduleInfo.moduleName}' not found in project")
             project.notifyVariantX(
-                VariantXBundle.message("notification.variantSetFailed", "Module not found: ${moduleInfo.stableName}"),
+                VariantXBundle.message("notification.variantSetFailed", "Module not found: ${moduleInfo.moduleName}"),
                 NotificationType.ERROR,
             )
             return false
         }
 
         return try {
-            logger.info("Setting variant '$variantName' on module '${moduleInfo.name}' (${moduleInfo.gradlePath})")
+            logger.info("Setting variant '$variantName' on module '${moduleInfo.displayName}' (${moduleInfo.gradlePath})")
             BuildVariantUpdater.getInstance(project)
                 .updateSelectedBuildVariant(module, variantName)
             project.notifyVariantX(
@@ -58,7 +58,7 @@ class VariantApplierService(private val project: Project) {
             )
             true
         } catch (e: Exception) {
-            logger.error("Failed to set variant '$variantName' on module '${moduleInfo.name}'", e)
+            logger.error("Failed to set variant '$variantName' on module '${moduleInfo.displayName}'", e)
             project.notifyVariantX(
                 VariantXBundle.message("notification.variantSetFailed", e.message ?: "Unknown error"),
                 NotificationType.ERROR,

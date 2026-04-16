@@ -13,8 +13,8 @@ import org.junit.Test
 class FavoriteVariantTest {
 
     private val sampleModuleInfo = AndroidModuleInfo(
-        stableName = "<app>",
-        name = "app",
+        moduleName = "app",
+        displayName = "app",
         gradlePath = ":app",
         isAppModule = true,
         flavorDimensions = listOf("environment", "tier"),

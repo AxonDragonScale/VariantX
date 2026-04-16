@@ -74,7 +74,7 @@ class FavoritesPanel(
 
         // Left: variant name — clicking loads the favorite's values into the dialog
         val displayName = if (moduleInfoMap.size > 1) {
-            val moduleName = moduleInfoMap[fav.moduleGradlePath]?.name ?: fav.moduleGradlePath
+            val moduleName = moduleInfoMap[fav.moduleGradlePath]?.displayName ?: fav.moduleGradlePath
             "$moduleName: ${fav.variantName}"
         } else {
             fav.variantName

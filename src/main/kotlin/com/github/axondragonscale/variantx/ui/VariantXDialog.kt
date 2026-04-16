@@ -94,15 +94,7 @@ class VariantXDialog(
             favoritesSeparator = TitledSeparator(VariantXBundle.message("favorites.title"))
             panel.add(favoritesSeparator)
 
-            favoritesPanel = FavoritesPanel(
-                favorites = favorites,
-                moduleInfoMap = appModules.associateBy { it.gradlePath },
-                onSelect = { fav -> loadFromFavorite(fav) },
-                onSet = { fav -> doSetFromFavorite(fav) },
-                onBuild = { fav -> doBuildFromFavorite(fav) },
-                onRun = { fav -> doRunFromFavorite(fav) },
-                onRemove = { fav -> removeFavorite(fav) },
-            )
+            favoritesPanel = createFavoritesPanel(favorites)
             panel.add(favoritesPanel)
             favoritesSpacer = createVerticalSpacer()
             panel.add(favoritesSpacer)
@@ -113,10 +105,10 @@ class VariantXDialog(
             panel.add(TitledSeparator(VariantXBundle.message("dialog.module")))
             val moduleRow = createRow("")
             moduleSegmentedControl = SegmentedControl(
-                items = appModules.map { it.name },
-                selectedItem = selectedModule.name,
+                items = appModules.map { it.displayName },
+                selectedItem = selectedModule.displayName,
             ) { newName ->
-                val newModule = appModules.find { it.name == newName } ?: return@SegmentedControl
+                val newModule = appModules.find { it.displayName == newName } ?: return@SegmentedControl
                 selectedModule = newModule
                 rebuildSegmentedControls()
                 updatePreview()
@@ -330,7 +322,7 @@ class VariantXDialog(
 
         // Switch module
         selectedModule = moduleInfo
-        moduleSegmentedControl?.setSelected(moduleInfo.name)
+        moduleSegmentedControl?.setSelected(moduleInfo.displayName)
 
         // Seed the selection maps so rebuildSegmentedControls picks them up
         flavorSelections.clear()
@@ -403,19 +395,21 @@ class VariantXDialog(
         container.repaint()
     }
 
+    private fun createFavoritesPanel(favorites: List<FavoriteVariant>) = FavoritesPanel(
+        favorites = favorites,
+        moduleInfoMap = appModules.associateBy { it.gradlePath },
+        onSelect = { fav -> loadFromFavorite(fav) },
+        onSet = { fav -> doSetFromFavorite(fav) },
+        onBuild = { fav -> doBuildFromFavorite(fav) },
+        onRun = { fav -> doRunFromFavorite(fav) },
+        onRemove = { fav -> removeFavorite(fav) },
+    )
+
     /** Inserts the favorites separator, panel, and spacer at the top of the content panel. */
     private fun showFavoritesSection(favorites: List<FavoriteVariant>) {
         val panel = contentPanel ?: return
         favoritesSeparator = TitledSeparator(VariantXBundle.message("favorites.title"))
-        favoritesPanel = FavoritesPanel(
-            favorites = favorites,
-            moduleInfoMap = appModules.associateBy { it.gradlePath },
-            onSelect = { fav -> loadFromFavorite(fav) },
-            onSet = { fav -> doSetFromFavorite(fav) },
-            onBuild = { fav -> doBuildFromFavorite(fav) },
-            onRun = { fav -> doRunFromFavorite(fav) },
-            onRemove = { fav -> removeFavorite(fav) },
-        )
+        favoritesPanel = createFavoritesPanel(favorites)
         favoritesSpacer = createVerticalSpacer()
         panel.add(favoritesSeparator!!, 0)
         panel.add(favoritesPanel!!, 1)
