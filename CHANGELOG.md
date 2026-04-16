@@ -5,17 +5,23 @@
 ## [Unreleased]
 
 ## [0.2.0]
+
 ### Added
+
 - Fix duplicates in the variant selector dialog
 
 ## [0.1.0]
+
 ### Added
+
 - "Build" action: assembles the selected variant without launching the app
 - Dialog keyboard shortcuts: press `R` / `B` / `S` to trigger Run / Build / Sync directly
 - Fix bug where UI wouldn't reflect immediately on pin a variant
 
 ## [0.0.1]
+
 ### Added
+
 - Keyboard shortcut `Cmd+Shift+X` / `Ctrl+Shift+X` to open variant selector dialog
 - Automatic detection of Android app modules
 - Flavor dimension and product flavor matrix with segmented controls
@@ -25,3 +31,8 @@
 - "Run" action to apply variant and launch the app
 - Pin/unpin favorite variant combinations for quick recall
 - Per-project state persistence (last used selection + favorites)
+
+[Unreleased]: https://github.com/AxonDragonScale/VariantX/compare/0.2.0...HEAD
+[0.2.0]: https://github.com/AxonDragonScale/VariantX/compare/0.1.0...0.2.0
+[0.1.0]: https://github.com/AxonDragonScale/VariantX/compare/0.0.1...0.1.0
+[0.0.1]: https://github.com/AxonDragonScale/VariantX/commits/0.0.1
