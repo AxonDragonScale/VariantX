@@ -3,6 +3,12 @@
 # VariantX Changelog
 
 ## [Unreleased]
+### Added
+- Gradle online/offline mode toggle in the dialog's action row
+
+### Changed
+- Dialog now seeds from the variant Android Studio actually has selected, instead of a stale persisted selection
+- Build / Install no longer triggers a redundant Gradle sync when the target variant is already selected
 
 ## [0.2.0]
 ### Added

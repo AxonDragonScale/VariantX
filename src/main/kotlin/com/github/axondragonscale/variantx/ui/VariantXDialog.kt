@@ -17,6 +17,7 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.util.ui.JBUI
 import com.intellij.util.ui.UIUtil
 import icons.GradleIcons
+import org.jetbrains.plugins.gradle.settings.GradleSettings
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.event.ActionEvent
@@ -68,6 +69,7 @@ class VariantXDialog(
 
     // Actions
     private lateinit var pinAction: Action
+    private lateinit var offlineAction: Action
     private lateinit var setAction: Action
     private lateinit var buildAction: Action
     private lateinit var runAction: Action
@@ -170,7 +172,11 @@ class VariantXDialog(
             init { putValue(Action.SMALL_ICON, AllIcons.Actions.PinTab) }
             override fun actionPerformed(e: ActionEvent) = doTogglePin()
         }
-        return arrayOf(pinAction)
+        offlineAction = object : AbstractAction(getOfflineButtonText()) {
+            init { putValue(Action.SMALL_ICON, AllIcons.Actions.OfflineMode) }
+            override fun actionPerformed(e: ActionEvent) = doToggleOffline()
+        }
+        return arrayOf(pinAction, offlineAction)
     }
 
     /** Set / Build / Run — no Cancel button. Dialog closes via Escape. */
@@ -199,17 +205,30 @@ class VariantXDialog(
         val savedModule = appModules.find { it.gradlePath == saved.selectedModuleGradlePath }
         if (savedModule != null) selectedModule = savedModule
 
+        // Seed flavors + build type, preferring the module's ACTUAL current variant so the
+        // dialog reflects what Android Studio has selected rather than a stale persisted value.
+        val currentSelection = selectedModule.currentVariant?.let {
+            VariantSelection.fromVariantName(
+                variantName = it,
+                moduleGradlePath = selectedModule.gradlePath,
+                dimensionOrder = selectedModule.flavorDimensions,
+                flavorsPerDimension = selectedModule.flavorsPerDimension,
+                buildTypes = selectedModule.buildTypes,
+            )
+        }
+        val source = currentSelection ?: saved
+
         // Restore flavor selections (validate against current module)
         for (dim in selectedModule.flavorDimensions) {
             val flavors = selectedModule.flavorsPerDimension[dim] ?: continue
-            val savedFlavor = saved.flavorSelections[dim]
-            flavorSelections[dim] = if (savedFlavor != null && savedFlavor in flavors) savedFlavor
+            val flavor = source.flavorSelections[dim]
+            flavorSelections[dim] = if (flavor != null && flavor in flavors) flavor
                                     else flavors.first()
         }
 
         // Restore build type
-        selectedBuildType = if (saved.selectedBuildType in selectedModule.buildTypes) {
-            saved.selectedBuildType
+        selectedBuildType = if (source.selectedBuildType in selectedModule.buildTypes) {
+            source.selectedBuildType
         } else {
             selectedModule.buildTypes.firstOrNull() ?: "debug"
         }
@@ -249,6 +268,13 @@ class VariantXDialog(
                else VariantXBundle.message("dialog.pin")
     }
 
+    private fun isGradleOffline(): Boolean =
+        GradleSettings.getInstance(project).isOfflineWork
+
+    private fun getOfflineButtonText(): String =
+        if (isGradleOffline()) VariantXBundle.message("dialog.gradleOffline")
+        else VariantXBundle.message("dialog.gradleOnline")
+
     // ── Button Handlers ──
 
     private fun doSet() {
@@ -267,6 +293,13 @@ class VariantXDialog(
         stateService.saveSelection(currentSelection)
         runnerService.applyAndRun(currentSelection, selectedModule)
         close(OK_EXIT_CODE)
+    }
+
+    /** Toggles Gradle offline/online mode and updates the button label to reflect the new state. */
+    private fun doToggleOffline() {
+        val settings = GradleSettings.getInstance(project)
+        settings.isOfflineWork = !settings.isOfflineWork
+        offlineAction.putValue(Action.NAME, getOfflineButtonText())
     }
 
     private fun doTogglePin() {

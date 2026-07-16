@@ -38,6 +38,13 @@ class VariantApplierService(private val project: Project) {
             return false
         }
 
+        // Already the selected variant — skip the apply so we don't trigger an unnecessary
+        // Gradle sync (e.g. when Build / Install is pressed for the current variant).
+        if (variantName == moduleInfo.currentVariant) {
+            logger.info("Variant '$variantName' already selected on module '${moduleInfo.displayName}', skipping apply")
+            return true
+        }
+
         val module = project.findModuleByName(moduleInfo.moduleName)
         if (module == null) {
             logger.error("Module '${moduleInfo.moduleName}' not found in project")
